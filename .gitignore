@@ -69,7 +69,6 @@ site/
 *.whl
 
 # AI coding tools
-./.cascade
-./.windsurfrules
+.cascade/
 .windsurfrules
 .roorules
