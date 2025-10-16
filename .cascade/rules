@@ -3,6 +3,7 @@
 ## Project Overview
 This is a Python client library for the Publer API (https://publer.com/docs).
 The library provides a modern, type-safe interface for interacting with Publer's social media management platform.
+Publer API documentation: https://publer.com/docs
 
 ## Technology Stack
 - **Python**: 3.8+ (use type hints throughout)

@@ -101,20 +101,28 @@ class PostsResource(BaseResource):
     def list(
         self,
         state: Optional[str] = None,
+        states: Optional[List[str]] = None,
         from_date: Optional[str] = None,
         to_date: Optional[str] = None,
-        limit: int = 50,
-        offset: int = 0,
+        page: int = 0,
+        account_ids: Optional[List[str]] = None,
+        query: Optional[str] = None,
+        post_type: Optional[str] = None,
+        member_id: Optional[str] = None,
     ) -> List[Post]:
         """
         List posts with optional filters.
 
         Args:
-            state: Filter by state (scheduled, published, draft, failed)
-            from_date: Filter posts from this date (ISO 8601)
-            to_date: Filter posts until this date (ISO 8601)
-            limit: Maximum number of posts to return
-            offset: Pagination offset
+            state: Filter by a single post state (all, scheduled, published, draft, failed, etc.)
+            states: Filter by multiple post states (use state[] array)
+            from_date: Filter posts from this date (ISO 8601 or YYYY-MM-DD)
+            to_date: Filter posts until this date (ISO 8601 or YYYY-MM-DD)
+            page: Page number for pagination (default: 0)
+            account_ids: List of account IDs to filter by
+            query: Full-text search keyword in post content
+            post_type: Filter by post type (status, link, photo, video, reel, story, etc.)
+            member_id: Filter posts created by a specific workspace member
 
         Returns:
             List of post objects
@@ -123,18 +131,37 @@ class PostsResource(BaseResource):
             PublerAPIError: If the request fails
 
         Example:
-            >>> posts = client.posts.list(state="scheduled", limit=10)
-            >>> for post in posts:
-            ...     print(f"{post.text}: {post.scheduled_at}")
+            >>> # Single state filter
+            >>> posts = client.posts.list(state="scheduled", page=0)
+            >>> 
+            >>> # Multiple states
+            >>> posts = client.posts.list(states=["scheduled", "published"])
+            >>> 
+            >>> # Filter by accounts and search
+            >>> posts = client.posts.list(
+            ...     account_ids=["acc_1", "acc_2"],
+            ...     query="launch",
+            ...     post_type="photo"
+            ... )
         """
-        params: Dict[str, Any] = {"limit": limit, "offset": offset}
+        params: Dict[str, Any] = {"page": page}
 
         if state:
             params["state"] = state
+        if states:
+            params["state[]"] = states
         if from_date:
             params["from"] = from_date
         if to_date:
             params["to"] = to_date
+        if account_ids:
+            params["account_ids[]"] = account_ids
+        if query:
+            params["query"] = query
+        if post_type:
+            params["postType"] = post_type
+        if member_id:
+            params["member_id"] = member_id
 
         response = self._get("/posts", params=params)
         posts_data = response.get("posts", response) if isinstance(response, dict) else response
@@ -143,6 +170,11 @@ class PostsResource(BaseResource):
     def get(self, post_id: str) -> Post:
         """
         Get details of a specific post.
+        
+        NOTE: The GET /api/v1/posts/{post_id} endpoint is not available in the Publer API.
+        This method will raise a ForbiddenError (403).
+        
+        WORKAROUND: Use posts.list() with filters to retrieve post details instead.
 
         Args:
             post_id: Post ID
@@ -151,13 +183,20 @@ class PostsResource(BaseResource):
             Post object
 
         Raises:
+            ForbiddenError: This endpoint is not available in the API
             NotFoundError: If post doesn't exist
             PublerAPIError: If the request fails
 
         Example:
-            >>> post = client.posts.get("post_123")
-            >>> print(post.text)
+            >>> # This will fail with 403 Forbidden
+            >>> # post = client.posts.get("post_123")
+            >>> 
+            >>> # Use list() instead to get post details
+            >>> posts = client.posts.list(state="all")
+            >>> post = next((p for p in posts if p.id == "post_123"), None)
         """
+        # This endpoint returns 403 Forbidden - not available in the API
+        # Keeping the method for backwards compatibility but documenting the limitation
         response = self._get(f"/posts/{post_id}")
         return Post(**response)
 
@@ -290,35 +329,34 @@ class AsyncPostsResource(AsyncBaseResource):
     async def list(
         self,
         state: Optional[str] = None,
+        states: Optional[List[str]] = None,
         from_date: Optional[str] = None,
         to_date: Optional[str] = None,
-        limit: int = 50,
-        offset: int = 0,
+        page: int = 0,
+        account_ids: Optional[List[str]] = None,
+        query: Optional[str] = None,
+        post_type: Optional[str] = None,
+        member_id: Optional[str] = None,
     ) -> List[Post]:
-        """
-        List posts with optional filters.
-
-        Args:
-            state: Filter by state (scheduled, published, draft, failed)
-            from_date: Filter posts from this date (ISO 8601)
-            to_date: Filter posts until this date (ISO 8601)
-            limit: Maximum number of posts to return
-            offset: Pagination offset
-
-        Returns:
-            List of post objects
-
-        Example:
-            >>> posts = await client.posts.list(state="scheduled")
-        """
-        params: Dict[str, Any] = {"limit": limit, "offset": offset}
+        """List posts with optional filters."""
+        params: Dict[str, Any] = {"page": page}
 
         if state:
             params["state"] = state
+        if states:
+            params["state[]"] = states
         if from_date:
             params["from"] = from_date
         if to_date:
             params["to"] = to_date
+        if account_ids:
+            params["account_ids[]"] = account_ids
+        if query:
+            params["query"] = query
+        if post_type:
+            params["postType"] = post_type
+        if member_id:
+            params["member_id"] = member_id
 
         response = await self._get("/posts", params=params)
         posts_data = response.get("posts", response) if isinstance(response, dict) else response
@@ -327,6 +365,11 @@ class AsyncPostsResource(AsyncBaseResource):
     async def get(self, post_id: str) -> Post:
         """
         Get details of a specific post.
+        
+        NOTE: The GET /api/v1/posts/{post_id} endpoint is not available in the Publer API.
+        This method will raise a ForbiddenError (403).
+        
+        WORKAROUND: Use posts.list() with filters to retrieve post details instead.
 
         Args:
             post_id: Post ID
@@ -334,9 +377,18 @@ class AsyncPostsResource(AsyncBaseResource):
         Returns:
             Post object
 
+        Raises:
+            ForbiddenError: This endpoint is not available in the API
+
         Example:
-            >>> post = await client.posts.get("post_123")
+            >>> # This will fail with 403 Forbidden
+            >>> # post = await client.posts.get("post_123")
+            >>> 
+            >>> # Use list() instead
+            >>> posts = await client.posts.list(state="all")
+            >>> post = next((p for p in posts if p.id == "post_123"), None)
         """
+        # This endpoint returns 403 Forbidden - not available in the API
         response = await self._get(f"/posts/{post_id}")
         return Post(**response)
 
