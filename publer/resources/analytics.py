@@ -78,29 +78,30 @@ class AnalyticsResource(BaseResource):
             params["account_id"] = account_id
 
         response = self._get(f"/analytics/charts/{chart_id}", params=params)
-        return ChartData(chart_id=chart_id, **response)
+        # Handle both dict and list responses
+        if isinstance(response, list):
+            return ChartData(chart_id=chart_id, data={"values": response}, period=params)
+        return ChartData(chart_id=chart_id, data=response, period=params)
 
     def post_insights(
         self,
         from_date: Optional[str] = None,
         to_date: Optional[str] = None,
         account_id: Optional[str] = None,
-        sort_by: str = "published_at",
-        order: str = "desc",
-        limit: int = 50,
-        offset: int = 0,
+        sort_by: str = "scheduled_at",
+        sort_type: str = "DESC",
+        page: int = 0,
     ) -> List[PostInsight]:
         """
         Get post performance insights with filtering and sorting.
 
         Args:
-            from_date: Start date (ISO 8601)
-            to_date: End date (ISO 8601)
-            account_id: Filter by account
-            sort_by: Sort field (published_at, engagement, reach, impressions)
-            order: Sort order (asc, desc)
-            limit: Maximum results
-            offset: Pagination offset
+            from_date: Start date (YYYY-MM-DD)
+            to_date: End date (YYYY-MM-DD)
+            account_id: Filter by account (optional, if omitted returns all accounts)
+            sort_by: Sort field (scheduled_at, engagement, reach, engagement_rate, etc.)
+            sort_type: Sort direction (ASC or DESC)
+            page: Page number (0-based, 10 posts per page)
 
         Returns:
             List of post insights
@@ -110,42 +111,67 @@ class AnalyticsResource(BaseResource):
 
         Example:
             >>> insights = client.analytics.post_insights(
+            ...     account_id="account_123",
             ...     from_date="2025-01-01",
             ...     sort_by="engagement",
-            ...     order="desc",
-            ...     limit=10
+            ...     sort_type="DESC",
+            ...     page=0
             ... )
         """
         params: Dict[str, Any] = {
             "sort_by": sort_by,
-            "order": order,
-            "limit": limit,
-            "offset": offset,
+            "sort_type": sort_type,
+            "page": page,
         }
         if from_date:
             params["from"] = from_date
         if to_date:
             params["to"] = to_date
-        if account_id:
-            params["account_id"] = account_id
 
-        response = self._get("/analytics/post-insights", params=params)
-        insights_data = response.get("insights", response) if isinstance(response, dict) else response
-        return [PostInsight(**insight) for insight in insights_data]
+        # Build endpoint URL with account_id in path if provided
+        if account_id:
+            endpoint = f"/analytics/{account_id}/post_insights"
+        else:
+            endpoint = "/analytics/post_insights"
+
+        response = self._get(endpoint, params=params)
+        
+        # Handle different response formats
+        if isinstance(response, str):
+            # API returned an error message as string
+            return []
+        elif isinstance(response, dict):
+            insights_data = response.get("insights", response.get("data", []))
+        elif isinstance(response, list):
+            insights_data = response
+        else:
+            insights_data = []
+            
+        return [PostInsight(**insight) for insight in insights_data if isinstance(insight, dict)]
 
     def hashtag_analysis(
         self,
         from_date: Optional[str] = None,
         to_date: Optional[str] = None,
-        limit: int = 50,
+        account_id: Optional[str] = None,
+        sort_by: str = "posts",
+        sort_type: str = "DESC",
+        page: int = 0,
+        query: Optional[str] = None,
+        member_id: Optional[str] = None,
     ) -> List[HashtagPerformance]:
         """
         Get hashtag performance analysis.
 
         Args:
-            from_date: Start date (ISO 8601)
-            to_date: End date (ISO 8601)
-            limit: Maximum results
+            from_date: Start date (YYYY-MM-DD)
+            to_date: End date (YYYY-MM-DD)
+            account_id: Filter by account (optional, if omitted returns all accounts)
+            sort_by: Sort field (posts, reach, likes, comments, shares, video_views)
+            sort_type: Sort direction (ASC or DESC)
+            page: Page number (0-based, 10 hashtags per page)
+            query: Search filter by hashtag text
+            member_id: Filter by member ID
 
         Returns:
             List of hashtag performance data
@@ -155,58 +181,97 @@ class AnalyticsResource(BaseResource):
 
         Example:
             >>> hashtags = client.analytics.hashtag_analysis(
+            ...     account_id="account_123",
             ...     from_date="2025-01-01",
-            ...     limit=20
+            ...     sort_by="engagement",
+            ...     page=0
             ... )
             >>> for tag in hashtags:
             ...     print(f"#{tag.hashtag}: {tag.posts_count} posts")
         """
-        params: Dict[str, Any] = {"limit": limit}
+        params: Dict[str, Any] = {
+            "sort_by": sort_by,
+            "sort_type": sort_type,
+            "page": page,
+        }
         if from_date:
             params["from"] = from_date
         if to_date:
             params["to"] = to_date
+        if query:
+            params["query"] = query
+        if member_id:
+            params["member_id"] = member_id
 
-        response = self._get("/analytics/hashtags", params=params)
-        hashtags_data = response.get("hashtags", response) if isinstance(response, dict) else response
-        return [HashtagPerformance(**tag) for tag in hashtags_data]
+        # Build endpoint URL with account_id in path if provided
+        if account_id:
+            endpoint = f"/analytics/{account_id}/hashtag_insights"
+        else:
+            endpoint = "/analytics/hashtag_insights"
+
+        response = self._get(endpoint, params=params)
+        
+        # Handle different response formats
+        if isinstance(response, dict):
+            hashtags_data = response.get("records", response.get("hashtags", []))
+        elif isinstance(response, list):
+            hashtags_data = response
+        else:
+            hashtags_data = []
+            
+        return [HashtagPerformance(**tag) for tag in hashtags_data if isinstance(tag, dict)]
 
     def best_times_to_post(
         self,
+        from_date: str,
+        to_date: str,
         account_id: Optional[str] = None,
-        from_date: Optional[str] = None,
-        to_date: Optional[str] = None,
-    ) -> List[BestTime]:
+        competitors: bool = False,
+        competitor_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """
         Get best times to post based on historical performance.
 
         Args:
-            account_id: Optional account ID
-            from_date: Start date (ISO 8601)
-            to_date: End date (ISO 8601)
+            from_date: Start date (YYYY-MM-DD) - REQUIRED
+            to_date: End date (YYYY-MM-DD) - REQUIRED
+            account_id: Filter by account (optional, if omitted returns all accounts)
+            competitors: Include competitor data (default False)
+            competitor_id: Specific competitor ID to analyze
 
         Returns:
-            List of best posting times
+            Dict keyed by day of week (Monday-Sunday), each with 24 hourly scores
 
         Raises:
             PublerAPIError: If the request fails
 
         Example:
-            >>> times = client.analytics.best_times_to_post()
-            >>> for time in times[:5]:
-            ...     print(f"{time.day} at {time.hour}:00 - Score: {time.score}")
+            >>> times = client.analytics.best_times_to_post(
+            ...     account_id="account_123",
+            ...     from_date="2025-01-01",
+            ...     to_date="2025-01-31"
+            ... )
+            >>> for day, hours in times.items():
+            ...     print(f"{day}: best hour is {hours.index(max(hours))}:00")
         """
-        params: Dict[str, Any] = {}
-        if account_id:
-            params["account_id"] = account_id
-        if from_date:
-            params["from"] = from_date
-        if to_date:
-            params["to"] = to_date
+        params: Dict[str, Any] = {
+            "from": from_date,
+            "to": to_date,
+        }
+        if competitors:
+            params["competitors"] = "true"
+        if competitor_id:
+            params["competitor_id"] = competitor_id
 
-        response = self._get("/analytics/best-times", params=params)
-        times_data = response.get("times", response) if isinstance(response, dict) else response
-        return [BestTime(**time) for time in times_data]
+        # Build endpoint URL with account_id in path if provided
+        if account_id:
+            endpoint = f"/analytics/{account_id}/best_times"
+        else:
+            endpoint = "/analytics/best_times"
+
+        response = self._get(endpoint, params=params)
+        # Response is a dict keyed by day of week
+        return response if isinstance(response, dict) else {}
 
     def member_performance(
         self,
@@ -330,71 +395,123 @@ class AsyncAnalyticsResource(AsyncBaseResource):
             params["account_id"] = account_id
 
         response = await self._get(f"/analytics/charts/{chart_id}", params=params)
-        return ChartData(chart_id=chart_id, **response)
+        # Handle both dict and list responses
+        if isinstance(response, list):
+            return ChartData(chart_id=chart_id, data={"values": response}, period=params)
+        return ChartData(chart_id=chart_id, data=response, period=params)
 
     async def post_insights(
         self,
         from_date: Optional[str] = None,
         to_date: Optional[str] = None,
         account_id: Optional[str] = None,
-        sort_by: str = "published_at",
-        order: str = "desc",
-        limit: int = 50,
-        offset: int = 0,
+        sort_by: str = "scheduled_at",
+        sort_type: str = "DESC",
+        page: int = 0,
     ) -> List[PostInsight]:
         """Get post performance insights."""
         params: Dict[str, Any] = {
             "sort_by": sort_by,
-            "order": order,
-            "limit": limit,
-            "offset": offset,
+            "sort_type": sort_type,
+            "page": page,
         }
         if from_date:
             params["from"] = from_date
         if to_date:
             params["to"] = to_date
-        if account_id:
-            params["account_id"] = account_id
 
-        response = await self._get("/analytics/post-insights", params=params)
-        insights_data = response.get("insights", response) if isinstance(response, dict) else response
-        return [PostInsight(**insight) for insight in insights_data]
+        # Build endpoint URL with account_id in path if provided
+        if account_id:
+            endpoint = f"/analytics/{account_id}/post_insights"
+        else:
+            endpoint = "/analytics/post_insights"
+
+        response = await self._get(endpoint, params=params)
+        
+        # Handle different response formats
+        if isinstance(response, str):
+            # API returned an error message as string
+            return []
+        elif isinstance(response, dict):
+            insights_data = response.get("insights", response.get("data", []))
+        elif isinstance(response, list):
+            insights_data = response
+        else:
+            insights_data = []
+            
+        return [PostInsight(**insight) for insight in insights_data if isinstance(insight, dict)]
 
     async def hashtag_analysis(
         self,
         from_date: Optional[str] = None,
         to_date: Optional[str] = None,
-        limit: int = 50,
+        account_id: Optional[str] = None,
+        sort_by: str = "posts",
+        sort_type: str = "DESC",
+        page: int = 0,
+        query: Optional[str] = None,
+        member_id: Optional[str] = None,
     ) -> List[HashtagPerformance]:
         """Get hashtag performance analysis."""
-        params: Dict[str, Any] = {"limit": limit}
+        params: Dict[str, Any] = {
+            "sort_by": sort_by,
+            "sort_type": sort_type,
+            "page": page,
+        }
         if from_date:
             params["from"] = from_date
         if to_date:
             params["to"] = to_date
+        if query:
+            params["query"] = query
+        if member_id:
+            params["member_id"] = member_id
 
-        response = await self._get("/analytics/hashtags", params=params)
-        hashtags_data = response.get("hashtags", response) if isinstance(response, dict) else response
-        return [HashtagPerformance(**tag) for tag in hashtags_data]
+        # Build endpoint URL with account_id in path if provided
+        if account_id:
+            endpoint = f"/analytics/{account_id}/hashtag_insights"
+        else:
+            endpoint = "/analytics/hashtag_insights"
+
+        response = await self._get(endpoint, params=params)
+        
+        # Handle different response formats
+        if isinstance(response, dict):
+            hashtags_data = response.get("records", response.get("hashtags", []))
+        elif isinstance(response, list):
+            hashtags_data = response
+        else:
+            hashtags_data = []
+            
+        return [HashtagPerformance(**tag) for tag in hashtags_data if isinstance(tag, dict)]
 
     async def best_times_to_post(
         self,
+        from_date: str,
+        to_date: str,
         account_id: Optional[str] = None,
-        from_date: Optional[str] = None,
-        to_date: Optional[str] = None,
-    ) -> List[BestTime]:
+        competitors: bool = False,
+        competitor_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """Get best times to post."""
-        params: Dict[str, Any] = {}
-        if account_id:
-            params["account_id"] = account_id
-        if from_date:
-            params["from"] = from_date
-        if to_date:
-            params["to"] = to_date
+        params: Dict[str, Any] = {
+            "from": from_date,
+            "to": to_date,
+        }
+        if competitors:
+            params["competitors"] = "true"
+        if competitor_id:
+            params["competitor_id"] = competitor_id
 
-        response = await self._get("/analytics/best-times", params=params)
-        times_data = response.get("times", response) if isinstance(response, dict) else response
-        return [BestTime(**time) for time in times_data]
+        # Build endpoint URL with account_id in path if provided
+        if account_id:
+            endpoint = f"/analytics/{account_id}/best_times"
+        else:
+            endpoint = "/analytics/best_times"
+
+        response = await self._get(endpoint, params=params)
+        # Response is a dict keyed by day of week
+        return response if isinstance(response, dict) else {}
 
     async def member_performance(
         self,
