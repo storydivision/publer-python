@@ -11,6 +11,15 @@ The library provides a modern, type-safe interface for interacting with Publer's
 - **Testing**: pytest with pytest-asyncio for async tests
 - **Code Quality**: black, isort, mypy, ruff
 
+## Development Environment
+- **Conda Environment**: `publer`
+- Always activate the conda environment before running commands:
+  ```bash
+  conda activate publer
+  ```
+- All Python commands, tests, and package installations should use this environment
+- When running commands, ensure the `publer` environment is active
+
 ## Architecture Pattern
 
 ### Core Structure
