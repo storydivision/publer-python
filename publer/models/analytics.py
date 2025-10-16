@@ -12,9 +12,11 @@ class Chart(BaseModel):
     """An available analytics chart."""
 
     id: str = Field(..., description="Chart identifier")
-    name: str = Field(..., description="Chart name")
+    name: Optional[str] = Field(None, description="Chart name")
     description: Optional[str] = Field(None, description="Chart description")
     type: Optional[str] = Field(None, description="Chart type")
+    group: Optional[str] = Field(None, description="Chart group")
+    chart_type: Optional[str] = Field(None, description="Chart visualization type")
     available_for: Optional[List[str]] = Field(None, description="Available for which accounts")
 
     class Config:
@@ -78,12 +80,26 @@ class PostInsight(BaseModel):
 class HashtagPerformance(BaseModel):
     """Hashtag performance data."""
 
-    hashtag: str = Field(..., description="Hashtag text")
-    posts_count: int = Field(..., description="Number of posts using this hashtag")
-    total_impressions: Optional[int] = Field(None, description="Total impressions")
-    total_reach: Optional[int] = Field(None, description="Total reach")
-    total_engagement: Optional[int] = Field(None, description="Total engagement")
-    avg_engagement_rate: Optional[float] = Field(None, description="Average engagement rate")
+    hashtag: Optional[str] = Field(None, description="Hashtag text")
+    posts: Optional[int] = Field(None, description="Number of posts using this hashtag")
+    posts_count: Optional[int] = Field(None, description="Number of posts (alias)")
+    reach: Optional[int] = Field(None, description="Total reach")
+    engagement: Optional[int] = Field(None, description="Total engagement")
+    likes: Optional[int] = Field(None, description="Total likes")
+    comments: Optional[int] = Field(None, description="Total comments")
+    shares: Optional[int] = Field(None, description="Total shares")
+    video_views: Optional[int] = Field(None, description="Total video views")
+    link_clicks: Optional[int] = Field(None, description="Total link clicks")
+    post_clicks: Optional[int] = Field(None, description="Total post clicks")
+    saves: Optional[int] = Field(None, description="Total saves")
+    hashtag_score: Optional[float] = Field(None, description="Hashtag performance score")
+    recent_posts: Optional[List[Dict[str, Any]]] = Field(None, description="Recent posts using this hashtag")
+    
+    # Legacy fields for backward compatibility
+    total_impressions: Optional[int] = Field(None, description="Total impressions (legacy)")
+    total_reach: Optional[int] = Field(None, description="Total reach (legacy)")
+    total_engagement: Optional[int] = Field(None, description="Total engagement (legacy)")
+    avg_engagement_rate: Optional[float] = Field(None, description="Average engagement rate (legacy)")
 
     class Config:
         """Pydantic config."""
@@ -111,14 +127,20 @@ class BestTime(BaseModel):
 class MemberPerformance(BaseModel):
     """Team member performance data."""
 
-    member_id: str = Field(..., description="Member identifier")
-    name: str = Field(..., description="Member name")
+    member_id: Optional[str] = Field(None, description="Member identifier")
+    name: Optional[str] = Field(None, description="Member name")
     email: Optional[str] = Field(None, description="Member email")
-    posts_count: int = Field(..., description="Number of posts created")
-    total_impressions: Optional[int] = Field(None, description="Total impressions")
-    total_reach: Optional[int] = Field(None, description="Total reach")
-    total_engagement: Optional[int] = Field(None, description="Total engagement")
+    posts_count: Optional[int] = Field(None, description="Number of posts created")
+    reach: Optional[int] = Field(None, description="Total reach")
+    engagement: Optional[int] = Field(None, description="Total engagement")
+    impressions: Optional[int] = Field(None, description="Total impressions")
+    total_impressions: Optional[int] = Field(None, description="Total impressions (alias)")
+    total_reach: Optional[int] = Field(None, description="Total reach (alias)")
+    total_engagement: Optional[int] = Field(None, description="Total engagement (alias)")
     avg_engagement_rate: Optional[float] = Field(None, description="Average engagement rate")
+    
+    # Additional fields that might be in the response
+    top_post: Optional[Dict[str, Any]] = Field(None, description="Top performing post")
 
     class Config:
         """Pydantic config."""
