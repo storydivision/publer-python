@@ -60,7 +60,8 @@
 
 #### ✅ Analytics (100%)
 - [x] Available charts
-- [x] Chart data retrieval
+- [x] Chart metadata retrieval (`chart_data`)
+- [x] Time-series data retrieval (`get_chart_time_series`) - **NEW**
 - [x] Post insights (with filtering & sorting)
 - [x] Hashtag analysis
 - [x] Best times to post

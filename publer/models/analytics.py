@@ -3,7 +3,7 @@ Analytics models.
 """
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -17,7 +17,7 @@ class Chart(BaseModel):
     type: Optional[str] = Field(None, description="Chart type")
     group: Optional[str] = Field(None, description="Chart group")
     chart_type: Optional[str] = Field(None, description="Chart visualization type")
-    available_for: Optional[List[str]] = Field(None, description="Available for which accounts")
+    available_for: Optional[list[str]] = Field(None, description="Available for which accounts")
 
     class Config:
         """Pydantic config."""
@@ -27,11 +27,45 @@ class Chart(BaseModel):
 
 
 class ChartData(BaseModel):
-    """Chart data response."""
+    """Chart data response (metadata)."""
 
     chart_id: str = Field(..., description="Chart identifier")
-    data: Dict[str, Any] = Field(..., description="Chart data")
-    period: Optional[Dict[str, str]] = Field(None, description="Time period")
+    data: dict[str, Any] = Field(..., description="Chart metadata")
+    period: Optional[dict[str, str]] = Field(None, description="Time period")
+
+    class Config:
+        """Pydantic config."""
+
+        from_attributes = True
+        populate_by_name = True
+
+
+class TimeSeriesDataPoint(BaseModel):
+    """A single data point in a time series."""
+
+    date: str = Field(..., description="Date in YYYY-MM-DD format")
+    value: Optional[float] = Field(None, description="Numeric value for this date")
+
+    # Additional fields that may be present
+    count: Optional[int] = Field(None, description="Count value")
+    percentage: Optional[float] = Field(None, description="Percentage value")
+    label: Optional[str] = Field(None, description="Label for this data point")
+
+    class Config:
+        """Pydantic config."""
+
+        from_attributes = True
+        populate_by_name = True
+        extra = "allow"  # Allow additional fields from API
+
+
+class TimeSeriesData(BaseModel):
+    """Time series data response."""
+
+    chart_id: str = Field(..., description="Chart identifier")
+    data: list[TimeSeriesDataPoint] = Field(..., description="Time series data points")
+    period: Optional[dict[str, str]] = Field(None, description="Time period")
+    metadata: Optional[dict[str, Any]] = Field(None, description="Chart metadata")
 
     class Config:
         """Pydantic config."""
@@ -55,7 +89,7 @@ class PostInsight(BaseModel):
     published_at: Optional[datetime] = Field(None, description="Publish timestamp")
     account_type: Optional[str] = Field(None, description="Account type")
     account_name: Optional[str] = Field(None, description="Account name")
-    
+
     # Metrics
     impressions: Optional[int] = Field(None, description="Number of impressions")
     reach: Optional[int] = Field(None, description="Number of unique users reached")
@@ -65,7 +99,7 @@ class PostInsight(BaseModel):
     shares: Optional[int] = Field(None, description="Number of shares")
     clicks: Optional[int] = Field(None, description="Number of clicks")
     saves: Optional[int] = Field(None, description="Number of saves")
-    
+
     # Calculated metrics
     engagement_rate: Optional[float] = Field(None, description="Engagement rate percentage")
     ctr: Optional[float] = Field(None, description="Click-through rate")
@@ -93,13 +127,17 @@ class HashtagPerformance(BaseModel):
     post_clicks: Optional[int] = Field(None, description="Total post clicks")
     saves: Optional[int] = Field(None, description="Total saves")
     hashtag_score: Optional[float] = Field(None, description="Hashtag performance score")
-    recent_posts: Optional[List[Dict[str, Any]]] = Field(None, description="Recent posts using this hashtag")
-    
+    recent_posts: Optional[list[dict[str, Any]]] = Field(
+        None, description="Recent posts using this hashtag"
+    )
+
     # Legacy fields for backward compatibility
     total_impressions: Optional[int] = Field(None, description="Total impressions (legacy)")
     total_reach: Optional[int] = Field(None, description="Total reach (legacy)")
     total_engagement: Optional[int] = Field(None, description="Total engagement (legacy)")
-    avg_engagement_rate: Optional[float] = Field(None, description="Average engagement rate (legacy)")
+    avg_engagement_rate: Optional[float] = Field(
+        None, description="Average engagement rate (legacy)"
+    )
 
     class Config:
         """Pydantic config."""
@@ -138,9 +176,9 @@ class MemberPerformance(BaseModel):
     total_reach: Optional[int] = Field(None, description="Total reach (alias)")
     total_engagement: Optional[int] = Field(None, description="Total engagement (alias)")
     avg_engagement_rate: Optional[float] = Field(None, description="Average engagement rate")
-    
+
     # Additional fields that might be in the response
-    top_post: Optional[Dict[str, Any]] = Field(None, description="Top performing post")
+    top_post: Optional[dict[str, Any]] = Field(None, description="Top performing post")
 
     class Config:
         """Pydantic config."""
@@ -178,7 +216,7 @@ class CompetitorAnalysis(BaseModel):
     competitor_id: str = Field(..., description="Competitor identifier")
     name: str = Field(..., description="Competitor name")
     platform: str = Field(..., description="Platform")
-    
+
     # Metrics
     followers: Optional[int] = Field(None, description="Follower count")
     followers_growth: Optional[int] = Field(None, description="Follower growth in period")

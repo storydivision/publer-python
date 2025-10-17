@@ -12,6 +12,8 @@ from publer.models.analytics import (
     HashtagPerformance,
     MemberPerformance,
     PostInsight,
+    TimeSeriesData,
+    TimeSeriesDataPoint,
 )
 from publer.models.media import Media, MediaUpload
 from publer.models.posts import JobStatus, Post, PostCreate, PostUpdate
@@ -28,6 +30,8 @@ __all__ = [
     "MediaUpload",
     "Chart",
     "ChartData",
+    "TimeSeriesData",
+    "TimeSeriesDataPoint",
     "PostInsight",
     "HashtagPerformance",
     "BestTime",
