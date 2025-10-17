@@ -133,87 +133,53 @@ class AnalyticsResource(BaseResource):
             ...
 
         Note:
-            The Publer API may use different endpoint patterns for different chart types.
-            This method tries multiple endpoint variations to find the correct one:
-            1. /analytics/{account_id}/charts/{chart_id}/data
-            2. /analytics/charts/{chart_id}/data
-            3. /analytics/{account_id}/{chart_id}
+            Uses the official Publer API endpoint:
+            GET /api/v1/analytics/{account_id}/chart_data?chart_ids[]={chart_id}&from={from_date}&to={to_date}
+
+            Response includes current and previous period data for comparison.
         """
         params: dict[str, Any] = {
             "from": from_date,
             "to": to_date,
         }
 
-        # Try different endpoint patterns based on Publer API structure
-        endpoints_to_try = [
-            f"/analytics/{account_id}/charts/{chart_id}/data",
-            f"/analytics/charts/{chart_id}/data",
-            f"/analytics/{account_id}/{chart_id}",
-        ]
+        # Use the correct Publer API endpoint: /analytics/:account_id/chart_data
+        # with chart_ids[] query parameter
+        params["chart_ids[]"] = chart_id
 
-        last_error = None
-        for endpoint in endpoints_to_try:
-            try:
-                response = self._get(endpoint, params=params)
+        response = self._get(f"/analytics/{account_id}/chart_data", params=params)
 
-                # Parse response into time-series format
-                data_points = []
-                metadata = {}
+        # Parse response according to actual Publer API structure
+        # Response: { current: { chart_id: [{date, label, last_value, id}] }, previous: {...} }
+        data_points = []
+        metadata = {}
 
-                if isinstance(response, dict):
-                    # Extract data points from various possible structures
-                    if "data" in response and isinstance(response["data"], list):
-                        raw_data = response["data"]
-                    elif "values" in response and isinstance(response["values"], list):
-                        raw_data = response["values"]
-                    elif "points" in response and isinstance(response["points"], list):
-                        raw_data = response["points"]
-                    elif "series" in response and isinstance(response["series"], list):
-                        raw_data = response["series"]
-                    else:
-                        # Response might be the data array directly
-                        raw_data = response if isinstance(response, list) else []
+        if isinstance(response, dict):
+            # Extract current period data
+            current = response.get("current", {})
+            raw_data = current.get(chart_id, [])
 
-                    # Extract metadata if present
-                    metadata = {
-                        k: v
-                        for k, v in response.items()
-                        if k not in ["data", "values", "points", "series"]
-                    }
-                elif isinstance(response, list):
-                    raw_data = response
-                else:
-                    raw_data = []
-
-                # Convert to TimeSeriesDataPoint objects
+            # raw_data is directly a list of data points
+            if isinstance(raw_data, list):
                 for item in raw_data:
                     if isinstance(item, dict):
+                        # Map last_value to value for consistency
+                        if "last_value" in item and "value" not in item:
+                            item["value"] = item["last_value"]
                         data_points.append(TimeSeriesDataPoint(**item))
 
-                # If we got data, return it
-                if data_points:
-                    return TimeSeriesData(
-                        chart_id=chart_id,
-                        data=data_points,
-                        period={"from": from_date, "to": to_date, "account_id": account_id},
-                        metadata=metadata if metadata else None,
-                    )
+            # Extract metadata (previous period data)
+            previous_data = response.get("previous", {}).get(chart_id, [])
+            metadata = {
+                "previous": previous_data if previous_data else None,
+            }
 
-            except Exception as e:
-                last_error = e
-                continue
-
-        # If all endpoints failed, raise the last error or a generic one
-        if last_error:
-            raise last_error
-        else:
-            # Return empty data if no endpoint worked but no error was raised
-            return TimeSeriesData(
-                chart_id=chart_id,
-                data=[],
-                period={"from": from_date, "to": to_date, "account_id": account_id},
-                metadata={"error": "No data available for this chart"},
-            )
+        return TimeSeriesData(
+            chart_id=chart_id,
+            data=data_points,
+            period={"from": from_date, "to": to_date, "account_id": account_id},
+            metadata=metadata if metadata else None,
+        )
 
     def post_insights(
         self,
@@ -562,76 +528,43 @@ class AsyncAnalyticsResource(AsyncBaseResource):
             "to": to_date,
         }
 
-        # Try different endpoint patterns based on Publer API structure
-        endpoints_to_try = [
-            f"/analytics/{account_id}/charts/{chart_id}/data",
-            f"/analytics/charts/{chart_id}/data",
-            f"/analytics/{account_id}/{chart_id}",
-        ]
+        # Use the correct Publer API endpoint: /analytics/:account_id/chart_data
+        # with chart_ids[] query parameter
+        params["chart_ids[]"] = chart_id
 
-        last_error = None
-        for endpoint in endpoints_to_try:
-            try:
-                response = await self._get(endpoint, params=params)
+        response = await self._get(f"/analytics/{account_id}/chart_data", params=params)
 
-                # Parse response into time-series format
-                data_points = []
-                metadata = {}
+        # Parse response according to actual Publer API structure
+        # Response: { current: { chart_id: [{date, label, last_value, id}] }, previous: {...} }
+        data_points = []
+        metadata = {}
 
-                if isinstance(response, dict):
-                    # Extract data points from various possible structures
-                    if "data" in response and isinstance(response["data"], list):
-                        raw_data = response["data"]
-                    elif "values" in response and isinstance(response["values"], list):
-                        raw_data = response["values"]
-                    elif "points" in response and isinstance(response["points"], list):
-                        raw_data = response["points"]
-                    elif "series" in response and isinstance(response["series"], list):
-                        raw_data = response["series"]
-                    else:
-                        # Response might be the data array directly
-                        raw_data = response if isinstance(response, list) else []
+        if isinstance(response, dict):
+            # Extract current period data
+            current = response.get("current", {})
+            raw_data = current.get(chart_id, [])
 
-                    # Extract metadata if present
-                    metadata = {
-                        k: v
-                        for k, v in response.items()
-                        if k not in ["data", "values", "points", "series"]
-                    }
-                elif isinstance(response, list):
-                    raw_data = response
-                else:
-                    raw_data = []
-
-                # Convert to TimeSeriesDataPoint objects
+            # raw_data is directly a list of data points
+            if isinstance(raw_data, list):
                 for item in raw_data:
                     if isinstance(item, dict):
+                        # Map last_value to value for consistency
+                        if "last_value" in item and "value" not in item:
+                            item["value"] = item["last_value"]
                         data_points.append(TimeSeriesDataPoint(**item))
 
-                # If we got data, return it
-                if data_points:
-                    return TimeSeriesData(
-                        chart_id=chart_id,
-                        data=data_points,
-                        period={"from": from_date, "to": to_date, "account_id": account_id},
-                        metadata=metadata if metadata else None,
-                    )
+            # Extract metadata (previous period data)
+            previous_data = response.get("previous", {}).get(chart_id, [])
+            metadata = {
+                "previous": previous_data if previous_data else None,
+            }
 
-            except Exception as e:
-                last_error = e
-                continue
-
-        # If all endpoints failed, raise the last error or a generic one
-        if last_error:
-            raise last_error
-        else:
-            # Return empty data if no endpoint worked but no error was raised
-            return TimeSeriesData(
-                chart_id=chart_id,
-                data=[],
-                period={"from": from_date, "to": to_date, "account_id": account_id},
-                metadata={"error": "No data available for this chart"},
-            )
+        return TimeSeriesData(
+            chart_id=chart_id,
+            data=data_points,
+            period={"from": from_date, "to": to_date, "account_id": account_id},
+            metadata=metadata if metadata else None,
+        )
 
     async def post_insights(
         self,

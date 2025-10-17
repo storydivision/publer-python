@@ -12,7 +12,12 @@ actual data points.
 import os
 from datetime import datetime, timedelta
 
+from dotenv import load_dotenv
+
 from publer import PublerClient
+
+# Load environment variables from .env file
+load_dotenv()
 
 
 def print_section(title: str):
