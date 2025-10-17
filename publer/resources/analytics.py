@@ -2,10 +2,9 @@
 Analytics API endpoints.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 from publer.models.analytics import (
-    BestTime,
     Chart,
     ChartData,
     Competitor,
@@ -13,6 +12,8 @@ from publer.models.analytics import (
     HashtagPerformance,
     MemberPerformance,
     PostInsight,
+    TimeSeriesData,
+    TimeSeriesDataPoint,
 )
 from publer.resources.base import AsyncBaseResource, BaseResource
 
@@ -20,7 +21,7 @@ from publer.resources.base import AsyncBaseResource, BaseResource
 class AnalyticsResource(BaseResource):
     """Synchronous analytics API endpoints."""
 
-    def available_charts(self) -> List[Chart]:
+    def available_charts(self) -> list[Chart]:
         """
         Get list of available analytics charts.
 
@@ -47,29 +48,36 @@ class AnalyticsResource(BaseResource):
         account_id: Optional[str] = None,
     ) -> ChartData:
         """
-        Get data for a specific chart.
+        Get metadata for a specific chart.
+
+        **Note:** This method returns chart metadata (titles, tooltips, chart types),
+        not the actual time-series data points. To get time-series data for creating
+        visualizations, use `get_chart_time_series()` instead.
 
         Args:
             chart_id: Chart identifier
-            from_date: Start date (ISO 8601)
-            to_date: End date (ISO 8601)
+            from_date: Start date (YYYY-MM-DD)
+            to_date: End date (YYYY-MM-DD)
             account_id: Optional account ID to filter by
 
         Returns:
-            Chart data
+            Chart metadata
 
         Raises:
             NotFoundError: If chart doesn't exist
             PublerAPIError: If the request fails
 
         Example:
-            >>> data = client.analytics.chart_data(
-            ...     "engagement_over_time",
+            >>> # Get chart metadata
+            >>> metadata = client.analytics.chart_data(
+            ...     "followers",
             ...     from_date="2025-01-01",
-            ...     to_date="2025-01-31"
+            ...     to_date="2025-01-31",
+            ...     account_id="account_123"
             ... )
+            >>> print(metadata.data)  # Chart configuration, not data points
         """
-        params: Dict[str, Any] = {}
+        params: dict[str, Any] = {}
         if from_date:
             params["from"] = from_date
         if to_date:
@@ -83,6 +91,130 @@ class AnalyticsResource(BaseResource):
             return ChartData(chart_id=chart_id, data={"values": response}, period=params)
         return ChartData(chart_id=chart_id, data=response, period=params)
 
+    def get_chart_time_series(
+        self,
+        chart_id: str,
+        account_id: str,
+        from_date: str,
+        to_date: str,
+    ) -> TimeSeriesData:
+        """
+        Get time-series data points for a specific analytics chart.
+
+        This method fetches the actual data points needed to recreate the charts
+        shown on the Publer website, unlike `chart_data()` which returns metadata.
+
+        Args:
+            chart_id: Chart identifier (e.g., "followers", "engagement", "reach")
+            account_id: Social media account ID (required)
+            from_date: Start date in YYYY-MM-DD format (required)
+            to_date: End date in YYYY-MM-DD format (required)
+
+        Returns:
+            Time series data with date/value pairs
+
+        Raises:
+            NotFoundError: If chart doesn't exist or account not found
+            ValidationError: If date format is invalid
+            PublerAPIError: If the request fails
+
+        Example:
+            >>> # Get follower count over time
+            >>> data = client.analytics.get_chart_time_series(
+            ...     chart_id="followers",
+            ...     account_id="account_123",
+            ...     from_date="2025-09-01",
+            ...     to_date="2025-10-01"
+            ... )
+            >>> for point in data.data:
+            ...     print(f"{point.date}: {point.value}")
+            2025-09-01: 120
+            2025-09-02: 122
+            ...
+
+        Note:
+            The Publer API may use different endpoint patterns for different chart types.
+            This method tries multiple endpoint variations to find the correct one:
+            1. /analytics/{account_id}/charts/{chart_id}/data
+            2. /analytics/charts/{chart_id}/data
+            3. /analytics/{account_id}/{chart_id}
+        """
+        params: dict[str, Any] = {
+            "from": from_date,
+            "to": to_date,
+        }
+
+        # Try different endpoint patterns based on Publer API structure
+        endpoints_to_try = [
+            f"/analytics/{account_id}/charts/{chart_id}/data",
+            f"/analytics/charts/{chart_id}/data",
+            f"/analytics/{account_id}/{chart_id}",
+        ]
+
+        last_error = None
+        for endpoint in endpoints_to_try:
+            try:
+                response = self._get(endpoint, params=params)
+
+                # Parse response into time-series format
+                data_points = []
+                metadata = {}
+
+                if isinstance(response, dict):
+                    # Extract data points from various possible structures
+                    if "data" in response and isinstance(response["data"], list):
+                        raw_data = response["data"]
+                    elif "values" in response and isinstance(response["values"], list):
+                        raw_data = response["values"]
+                    elif "points" in response and isinstance(response["points"], list):
+                        raw_data = response["points"]
+                    elif "series" in response and isinstance(response["series"], list):
+                        raw_data = response["series"]
+                    else:
+                        # Response might be the data array directly
+                        raw_data = response if isinstance(response, list) else []
+
+                    # Extract metadata if present
+                    metadata = {
+                        k: v
+                        for k, v in response.items()
+                        if k not in ["data", "values", "points", "series"]
+                    }
+                elif isinstance(response, list):
+                    raw_data = response
+                else:
+                    raw_data = []
+
+                # Convert to TimeSeriesDataPoint objects
+                for item in raw_data:
+                    if isinstance(item, dict):
+                        data_points.append(TimeSeriesDataPoint(**item))
+
+                # If we got data, return it
+                if data_points:
+                    return TimeSeriesData(
+                        chart_id=chart_id,
+                        data=data_points,
+                        period={"from": from_date, "to": to_date, "account_id": account_id},
+                        metadata=metadata if metadata else None,
+                    )
+
+            except Exception as e:
+                last_error = e
+                continue
+
+        # If all endpoints failed, raise the last error or a generic one
+        if last_error:
+            raise last_error
+        else:
+            # Return empty data if no endpoint worked but no error was raised
+            return TimeSeriesData(
+                chart_id=chart_id,
+                data=[],
+                period={"from": from_date, "to": to_date, "account_id": account_id},
+                metadata={"error": "No data available for this chart"},
+            )
+
     def post_insights(
         self,
         from_date: Optional[str] = None,
@@ -91,7 +223,7 @@ class AnalyticsResource(BaseResource):
         sort_by: str = "scheduled_at",
         sort_type: str = "DESC",
         page: int = 0,
-    ) -> List[PostInsight]:
+    ) -> list[PostInsight]:
         """
         Get post performance insights with filtering and sorting.
 
@@ -118,7 +250,7 @@ class AnalyticsResource(BaseResource):
             ...     page=0
             ... )
         """
-        params: Dict[str, Any] = {
+        params: dict[str, Any] = {
             "sort_by": sort_by,
             "sort_type": sort_type,
             "page": page,
@@ -135,7 +267,7 @@ class AnalyticsResource(BaseResource):
             endpoint = "/analytics/post_insights"
 
         response = self._get(endpoint, params=params)
-        
+
         # Handle different response formats
         if isinstance(response, str):
             # API returned an error message as string
@@ -146,7 +278,7 @@ class AnalyticsResource(BaseResource):
             insights_data = response
         else:
             insights_data = []
-            
+
         return [PostInsight(**insight) for insight in insights_data if isinstance(insight, dict)]
 
     def hashtag_analysis(
@@ -159,7 +291,7 @@ class AnalyticsResource(BaseResource):
         page: int = 0,
         query: Optional[str] = None,
         member_id: Optional[str] = None,
-    ) -> List[HashtagPerformance]:
+    ) -> list[HashtagPerformance]:
         """
         Get hashtag performance analysis.
 
@@ -189,7 +321,7 @@ class AnalyticsResource(BaseResource):
             >>> for tag in hashtags:
             ...     print(f"#{tag.hashtag}: {tag.posts_count} posts")
         """
-        params: Dict[str, Any] = {
+        params: dict[str, Any] = {
             "sort_by": sort_by,
             "sort_type": sort_type,
             "page": page,
@@ -210,7 +342,7 @@ class AnalyticsResource(BaseResource):
             endpoint = "/analytics/hashtag_insights"
 
         response = self._get(endpoint, params=params)
-        
+
         # Handle different response formats
         if isinstance(response, dict):
             hashtags_data = response.get("records", response.get("hashtags", []))
@@ -218,7 +350,7 @@ class AnalyticsResource(BaseResource):
             hashtags_data = response
         else:
             hashtags_data = []
-            
+
         return [HashtagPerformance(**tag) for tag in hashtags_data if isinstance(tag, dict)]
 
     def best_times_to_post(
@@ -228,7 +360,7 @@ class AnalyticsResource(BaseResource):
         account_id: Optional[str] = None,
         competitors: bool = False,
         competitor_id: Optional[str] = None,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Get best times to post based on historical performance.
 
@@ -254,7 +386,7 @@ class AnalyticsResource(BaseResource):
             >>> for day, hours in times.items():
             ...     print(f"{day}: best hour is {hours.index(max(hours))}:00")
         """
-        params: Dict[str, Any] = {
+        params: dict[str, Any] = {
             "from": from_date,
             "to": to_date,
         }
@@ -277,7 +409,7 @@ class AnalyticsResource(BaseResource):
         self,
         from_date: Optional[str] = None,
         to_date: Optional[str] = None,
-    ) -> List[MemberPerformance]:
+    ) -> list[MemberPerformance]:
         """
         Get team member performance metrics.
 
@@ -298,7 +430,7 @@ class AnalyticsResource(BaseResource):
             >>> for member in members:
             ...     print(f"{member.name}: {member.posts_count} posts")
         """
-        params: Dict[str, Any] = {}
+        params: dict[str, Any] = {}
         if from_date:
             params["from"] = from_date
         if to_date:
@@ -308,7 +440,7 @@ class AnalyticsResource(BaseResource):
         members_data = response.get("members", response) if isinstance(response, dict) else response
         return [MemberPerformance(**member) for member in members_data]
 
-    def list_competitors(self) -> List[Competitor]:
+    def list_competitors(self) -> list[Competitor]:
         """
         List competitor accounts.
 
@@ -331,10 +463,10 @@ class AnalyticsResource(BaseResource):
 
     def competitor_analysis(
         self,
-        competitor_ids: Optional[List[str]] = None,
+        competitor_ids: Optional[list[str]] = None,
         from_date: Optional[str] = None,
         to_date: Optional[str] = None,
-    ) -> List[CompetitorAnalysis]:
+    ) -> list[CompetitorAnalysis]:
         """
         Get competitor performance analysis.
 
@@ -356,7 +488,7 @@ class AnalyticsResource(BaseResource):
             >>> for comp in analysis:
             ...     print(f"{comp.name}: {comp.followers} followers")
         """
-        params: Dict[str, Any] = {}
+        params: dict[str, Any] = {}
         if competitor_ids:
             params["competitor_ids"] = ",".join(competitor_ids)
         if from_date:
@@ -365,14 +497,18 @@ class AnalyticsResource(BaseResource):
             params["to"] = to_date
 
         response = self._get("/analytics/competitors/analysis", params=params)
-        analysis_data = response.get("analysis", response) if isinstance(response, dict) else response
+        analysis_data = (
+            response.get("analysis", response)
+            if isinstance(response, dict)
+            else response
+        )
         return [CompetitorAnalysis(**comp) for comp in analysis_data]
 
 
 class AsyncAnalyticsResource(AsyncBaseResource):
     """Asynchronous analytics API endpoints."""
 
-    async def available_charts(self) -> List[Chart]:
+    async def available_charts(self) -> list[Chart]:
         """Get list of available analytics charts."""
         response = await self._get("/analytics/charts")
         charts_data = response.get("charts", response) if isinstance(response, dict) else response
@@ -385,8 +521,14 @@ class AsyncAnalyticsResource(AsyncBaseResource):
         to_date: Optional[str] = None,
         account_id: Optional[str] = None,
     ) -> ChartData:
-        """Get data for a specific chart."""
-        params: Dict[str, Any] = {}
+        """
+        Get metadata for a specific chart.
+
+        **Note:** This method returns chart metadata (titles, tooltips, chart types),
+        not the actual time-series data points. To get time-series data for creating
+        visualizations, use `get_chart_time_series()` instead.
+        """
+        params: dict[str, Any] = {}
         if from_date:
             params["from"] = from_date
         if to_date:
@@ -400,6 +542,97 @@ class AsyncAnalyticsResource(AsyncBaseResource):
             return ChartData(chart_id=chart_id, data={"values": response}, period=params)
         return ChartData(chart_id=chart_id, data=response, period=params)
 
+    async def get_chart_time_series(
+        self,
+        chart_id: str,
+        account_id: str,
+        from_date: str,
+        to_date: str,
+    ) -> TimeSeriesData:
+        """
+        Get time-series data points for a specific analytics chart.
+
+        This method fetches the actual data points needed to recreate the charts
+        shown on the Publer website, unlike `chart_data()` which returns metadata.
+
+        See the synchronous version for full documentation.
+        """
+        params: dict[str, Any] = {
+            "from": from_date,
+            "to": to_date,
+        }
+
+        # Try different endpoint patterns based on Publer API structure
+        endpoints_to_try = [
+            f"/analytics/{account_id}/charts/{chart_id}/data",
+            f"/analytics/charts/{chart_id}/data",
+            f"/analytics/{account_id}/{chart_id}",
+        ]
+
+        last_error = None
+        for endpoint in endpoints_to_try:
+            try:
+                response = await self._get(endpoint, params=params)
+
+                # Parse response into time-series format
+                data_points = []
+                metadata = {}
+
+                if isinstance(response, dict):
+                    # Extract data points from various possible structures
+                    if "data" in response and isinstance(response["data"], list):
+                        raw_data = response["data"]
+                    elif "values" in response and isinstance(response["values"], list):
+                        raw_data = response["values"]
+                    elif "points" in response and isinstance(response["points"], list):
+                        raw_data = response["points"]
+                    elif "series" in response and isinstance(response["series"], list):
+                        raw_data = response["series"]
+                    else:
+                        # Response might be the data array directly
+                        raw_data = response if isinstance(response, list) else []
+
+                    # Extract metadata if present
+                    metadata = {
+                        k: v
+                        for k, v in response.items()
+                        if k not in ["data", "values", "points", "series"]
+                    }
+                elif isinstance(response, list):
+                    raw_data = response
+                else:
+                    raw_data = []
+
+                # Convert to TimeSeriesDataPoint objects
+                for item in raw_data:
+                    if isinstance(item, dict):
+                        data_points.append(TimeSeriesDataPoint(**item))
+
+                # If we got data, return it
+                if data_points:
+                    return TimeSeriesData(
+                        chart_id=chart_id,
+                        data=data_points,
+                        period={"from": from_date, "to": to_date, "account_id": account_id},
+                        metadata=metadata if metadata else None,
+                    )
+
+            except Exception as e:
+                last_error = e
+                continue
+
+        # If all endpoints failed, raise the last error or a generic one
+        if last_error:
+            raise last_error
+        else:
+            # Return empty data if no endpoint worked but no error was raised
+            return TimeSeriesData(
+                chart_id=chart_id,
+                data=[],
+                period={"from": from_date, "to": to_date, "account_id": account_id},
+                metadata={"error": "No data available for this chart"},
+            )
+
     async def post_insights(
         self,
         from_date: Optional[str] = None,
@@ -408,9 +641,9 @@ class AsyncAnalyticsResource(AsyncBaseResource):
         sort_by: str = "scheduled_at",
         sort_type: str = "DESC",
         page: int = 0,
-    ) -> List[PostInsight]:
+    ) -> list[PostInsight]:
         """Get post performance insights."""
-        params: Dict[str, Any] = {
+        params: dict[str, Any] = {
             "sort_by": sort_by,
             "sort_type": sort_type,
             "page": page,
@@ -427,7 +660,7 @@ class AsyncAnalyticsResource(AsyncBaseResource):
             endpoint = "/analytics/post_insights"
 
         response = await self._get(endpoint, params=params)
-        
+
         # Handle different response formats
         if isinstance(response, str):
             # API returned an error message as string
@@ -438,7 +671,7 @@ class AsyncAnalyticsResource(AsyncBaseResource):
             insights_data = response
         else:
             insights_data = []
-            
+
         return [PostInsight(**insight) for insight in insights_data if isinstance(insight, dict)]
 
     async def hashtag_analysis(
@@ -451,9 +684,9 @@ class AsyncAnalyticsResource(AsyncBaseResource):
         page: int = 0,
         query: Optional[str] = None,
         member_id: Optional[str] = None,
-    ) -> List[HashtagPerformance]:
+    ) -> list[HashtagPerformance]:
         """Get hashtag performance analysis."""
-        params: Dict[str, Any] = {
+        params: dict[str, Any] = {
             "sort_by": sort_by,
             "sort_type": sort_type,
             "page": page,
@@ -474,7 +707,7 @@ class AsyncAnalyticsResource(AsyncBaseResource):
             endpoint = "/analytics/hashtag_insights"
 
         response = await self._get(endpoint, params=params)
-        
+
         # Handle different response formats
         if isinstance(response, dict):
             hashtags_data = response.get("records", response.get("hashtags", []))
@@ -482,7 +715,7 @@ class AsyncAnalyticsResource(AsyncBaseResource):
             hashtags_data = response
         else:
             hashtags_data = []
-            
+
         return [HashtagPerformance(**tag) for tag in hashtags_data if isinstance(tag, dict)]
 
     async def best_times_to_post(
@@ -492,9 +725,9 @@ class AsyncAnalyticsResource(AsyncBaseResource):
         account_id: Optional[str] = None,
         competitors: bool = False,
         competitor_id: Optional[str] = None,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Get best times to post."""
-        params: Dict[str, Any] = {
+        params: dict[str, Any] = {
             "from": from_date,
             "to": to_date,
         }
@@ -517,9 +750,9 @@ class AsyncAnalyticsResource(AsyncBaseResource):
         self,
         from_date: Optional[str] = None,
         to_date: Optional[str] = None,
-    ) -> List[MemberPerformance]:
+    ) -> list[MemberPerformance]:
         """Get team member performance metrics."""
-        params: Dict[str, Any] = {}
+        params: dict[str, Any] = {}
         if from_date:
             params["from"] = from_date
         if to_date:
@@ -529,7 +762,7 @@ class AsyncAnalyticsResource(AsyncBaseResource):
         members_data = response.get("members", response) if isinstance(response, dict) else response
         return [MemberPerformance(**member) for member in members_data]
 
-    async def list_competitors(self) -> List[Competitor]:
+    async def list_competitors(self) -> list[Competitor]:
         """List competitor accounts."""
         response = await self._get("/analytics/competitors")
         competitors_data = (
@@ -539,12 +772,12 @@ class AsyncAnalyticsResource(AsyncBaseResource):
 
     async def competitor_analysis(
         self,
-        competitor_ids: Optional[List[str]] = None,
+        competitor_ids: Optional[list[str]] = None,
         from_date: Optional[str] = None,
         to_date: Optional[str] = None,
-    ) -> List[CompetitorAnalysis]:
+    ) -> list[CompetitorAnalysis]:
         """Get competitor performance analysis."""
-        params: Dict[str, Any] = {}
+        params: dict[str, Any] = {}
         if competitor_ids:
             params["competitor_ids"] = ",".join(competitor_ids)
         if from_date:
@@ -553,5 +786,9 @@ class AsyncAnalyticsResource(AsyncBaseResource):
             params["to"] = to_date
 
         response = await self._get("/analytics/competitors/analysis", params=params)
-        analysis_data = response.get("analysis", response) if isinstance(response, dict) else response
+        analysis_data = (
+            response.get("analysis", response)
+            if isinstance(response, dict)
+            else response
+        )
         return [CompetitorAnalysis(**comp) for comp in analysis_data]

@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Time-Series Chart Data** - New method to fetch actual chart data points
+  - `analytics.get_chart_time_series()` - Get time-series data for analytics charts
+  - `TimeSeriesData` model - Container for time-series data with metadata
+  - `TimeSeriesDataPoint` model - Individual data point with date/value pairs
+  - Example script: `examples/chart_time_series_example.py`
+  - Comprehensive documentation: `ANALYTICS_FIX.md`
+
+### Changed
+- **Analytics Documentation** - Clarified `chart_data()` returns metadata, not data points
+  - Updated docstrings to explain the difference between metadata and time-series data
+  - Added notes directing users to `get_chart_time_series()` for actual data
+
+### Fixed
+- **Analytics Chart Data** - Resolved issue where `chart_data()` returned metadata instead of time-series data
+  - Users can now fetch actual data points needed to recreate Publer website charts
+  - Supports multiple endpoint patterns for API compatibility
+  - Handles various response formats from the Publer API
+
 ## [0.2.0] - 2025-10-07
 
 ### Added
